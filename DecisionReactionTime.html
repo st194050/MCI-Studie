@@ -1,0 +1,255 @@
+<html>
+  <head>
+    <title>Human Capabilities - Reaction test</title>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+      #stimulus {
+        position: absolute;
+        opacity: 1;
+        display: none;
+      }
+      .circle {
+        border-radius: 50%;
+      }
+      .triangle {
+        clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">User Study</h1>
+    <h2 id="instruction">Press space to start!</h2>
+    <div id="stimulus"></div>
+
+    <div class="results">
+      <p id="time"></p>
+      <p id="count"></p>
+      <p id="meanAll"></p>
+      <p id="meanGreen"></p>
+      <p id="meanYellow"></p>
+      <p id="sd"></p>
+      <p id="errors"></p>
+    </div>
+
+    <script>
+      // if true, the experiment is currently active
+      let experimentActive = false;
+
+      // if true, the stimulus is currently visible and the user should press space
+      let stimulusIsVisible = false;
+
+      // time at which the stimulus last appeared (in milliseconds, see Date.now())
+      let stimulusTimestamp;
+
+      // ID of the timeout that is scheduled to make the stimulus appear.
+      // Used to cancel tests when the experiment ends.
+      let testStimulusTimeout;
+
+      // ID of the interval that is scheduled to fade the stimulus. Used to stop fading when user reacts.
+      let fadeInterval;
+
+      let greenTimes = [];
+      let yellowTimes = [];
+
+      // count of errors
+      let errorCount = 0;
+
+      // count of trials
+      let trialCount = 0;
+
+      const maxTrials = 30;
+
+      let currentShape = " ";
+      let currentColor = " ";
+
+      // DOM elements
+      let timeElement = document.getElementById("time");
+      let countElement = document.getElementById("count");
+      let meanAllElement = document.getElementById("meanAll");
+      let meanGreenElement = document.getElementById("meanGreen");
+      let meanYellowElement = document.getElementById("meanYellow");
+      let stdDevElement = document.getElementById("sd");
+      let instructionElement = document.getElementById("instruction");
+      let stimulusElement = document.getElementById("stimulus");
+      let errorElement = document.getElementById("errors");
+
+      function getMean(data) {
+        let sum = 0;
+        for (let value of data) sum += value;
+        return sum / data.length;
+      }
+
+      function getStandardDeviation(data) {
+        let mean = getMean(data);
+        let squareSum = 0;
+        for (let value of data) squareSum += (value - mean) ** 2;
+        return Math.sqrt(squareSum / data.length);
+      }
+
+      function clearResults() {
+        timeElement.textContent = "";
+        countElement.textContent = "";
+        meanAllElement.textContent = "";
+        meanGreenElement.textContent = "";
+        meanYellowElement.textContent = "";
+        stdDevElement.textContent = "";
+        errorElement.textContent = "";
+      }
+
+      function showResults() {
+        let allTimes = greenTimes.concat(yellowTimes);
+        let meanAll = getMean(allTimes);
+        let meanGreen = getMean(greenTimes);
+        let meanYellow = getMean(yellowTimes);
+        let stdDev = getStandardDeviation(allTimes);
+        let errorRate = (errorCount / (allTimes.length + errorCount)) * 100;
+
+        countElement.textContent = "Count: " + allTimes.length;
+        meanAllElement.textContent =
+          "Mean overall: " + Math.round(getMean(allTimes)) + " ms";
+        meanGreenElement.textContent =
+          "Mean green: " + Math.round(getMean(greenTimes)) + " ms";
+        meanYellowElement.textContent =
+          "Mean yellow: " + Math.round(getMean(yellowTimes)) + " ms";
+        stdDevElement.textContent = "SD: " + Math.round(stdDev) + " ms";
+        errorElement.textContent = "Errors: " + errorCount;
+      }
+
+      function setStimulusColor(newColor) {
+        stimulusElement.style.backgroundColor = newColor;
+      }
+
+      function startTestTrial() {
+        stimulusElement.style.display = "none";
+        stimulusElement.style.opacity = 0;
+        stimulusIsVisible = false;
+
+        // schedule the stimulus to appear after a random amount of time
+        let timeToWaitInSeconds = Math.random() * 4 + 2; // 2 - 6s
+        testStimulusTimeout = setTimeout(
+          showStimulus,
+          timeToWaitInSeconds * 1000,
+        );
+      }
+
+      function fade(duration) {
+        let opacity = 0; // initial opacity
+        stimulusElement.style.opacity = opacity;
+        const interval = 50; // interval in mls
+        const step = interval / duration; // increase in opacity per step
+
+        clearInterval(fadeInterval); // clear any existing interval
+
+        fadeInterval = setInterval(() => {
+          opacity += step;
+          stimulusElement.style.opacity = opacity;
+          if (opacity >= 1) {
+            clearInterval(fadeInterval); // stop the interval when fully visible
+          }
+          stimulusElement.style.opacity = opacity;
+        }, interval);
+      }
+
+      function showStimulus() {
+        // random shape triangle or circle with 50/50 chance
+        currentShape = Math.random() > 0.5 ? "circle" : "triangle";
+        // random color green or yellow with 50/50 chance
+        currentColor = Math.random() > 0.5 ? "green" : "yellow";
+        // random size between 100 and 300 pixels
+        let size = Math.floor(Math.random() * 201) + 100;
+
+        stimulusElement.className = currentShape;
+        stimulusElement.style.backgroundColor = currentColor;
+        stimulusElement.style.width = size + "px";
+        stimulusElement.style.height = size + "px";
+        stimulusElement.style.display = "block";
+
+        // random position on screen
+        const x = Math.random() * (window.innerWidth - size);
+        const y = Math.random() * (window.innerHeight - size);
+        stimulusElement.style.left = x + "px";
+        stimulusElement.style.top = y + "px";
+
+        stimulusIsVisible = true;
+        stimulusTimestamp = Date.now();
+        stimulusElement.style.opacity = 1;
+
+        // if shape is triangle then next trial after 1-4 seconds
+        if (currentShape === "triangle") {
+          let autoNextTimeout = Math.random() * 3000 + 1000;
+          testStimulusTimeout = setTimeout(() => {
+            if (stimulusIsVisible && currentShape === "triangle") {
+              startTestTrial();
+            }
+          }, autoNextTimeout);
+        }
+      }
+
+      function recordStimulusReactionTime(deltaTime) {
+        if (fadeInterval) clearInterval(fadeInterval); // stop fading when user reacts
+        timeElement.textContent = deltaTime + " ms";
+      }
+
+      function startExperiment() {
+        clearResults(); // clear results of any previous tests
+        instructionElement.textContent =
+          "Press space when when a circle appears! Press 'a' for results!";
+
+        // reset data and start tests
+        greenTimes = [];
+        yellowTimes = [];
+        errorCount = 0;
+        trialCount = 0;
+        experimentActive = true;
+        startTestTrial();
+      }
+
+      function stopExperiment() {
+        // cancel any ongoing tests
+        clearTimeout(testStimulusTimeout);
+        stimulusIsVisible = false;
+        experimentActive = false;
+        stimulusElement.style.display = "none";
+
+        // reset instruction and show results
+        instruction.textContent = "Press space to start!";
+        showResults();
+      }
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === " ") {
+          // the user pressed the space key
+          if (!experimentActive) {
+            // start the experiment if it wasn't active
+            startExperiment();
+            return;
+          }
+
+          if (stimulusIsVisible) {
+            if (currentShape === "circle") {
+              //  Save reaction time for circle
+              let deltaTime = Date.now() - stimulusTimestamp;
+              recordStimulusReactionTime(deltaTime);
+              if (currentColor === "green") greenTimes.push(deltaTime);
+              else yellowTimes.push(deltaTime);
+
+              if (greenTimes.length + yellowTimes.length >= maxTrials)
+                stopExperiment();
+              else startTestTrial();
+            } else {
+              // User pressed space for triangle
+              errorCount++;
+              startTestTrial();
+            }
+          } else {
+            errorCount++; // User pressed space too soon before stimulus appeared
+          }
+        } else if (event.key === "a") {
+          if (experimentActive) stopExperiment();
+        }
+      });
+    </script>
+  </body>
+</html>

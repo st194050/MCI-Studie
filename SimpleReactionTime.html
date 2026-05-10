@@ -1,0 +1,252 @@
+<html>
+  <head>
+    <title>Human Capabilities - Reaction test</title>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+      #stimulus {
+        height: 100px;
+        width: 100px;
+        background-color: red;
+        opacity: 0;
+        position: absolute;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">User Study</h1>
+    <h2 id="instruction">Press space to start!</h2>
+    <div id="stimulus"></div>
+    <p id="time"></p>
+    <p id="count"></p>
+    <p id="mean"></p>
+    <p id="sd"></p>
+    <p id="errors"></p>
+    <p id="correlation"></p>
+
+    <script>
+      // if true, the experiment is currently active
+      let experimentActive = false;
+
+      // if true, the stimulus is currently visible and the user should press space
+      let stimulusIsVisible = false;
+
+      // time at which the stimulus last appeared (in milliseconds, see Date.now())
+      let stimulusTimestamp;
+
+      // ID of the timeout that is scheduled to make the stimulus appear.
+      // Used to cancel tests when the experiment ends.
+      let testStimulusTimeout;
+
+      // ID of the interval that is scheduled to fade the stimulus. Used to stop fading when user reacts.
+      let fadeInterval;
+
+      // count of errors
+      let errorCount;
+
+      // count of trials
+      let trialCount;
+
+      const maxTrials = 30;
+
+      // recorded reaction times in milliseconds
+      let times = [];
+      // recorded distances to center for correlation analysis
+      let distances = [];
+
+      // DOM elements
+      let timeElement = document.getElementById("time");
+      let countElement = document.getElementById("count");
+      let meanElement = document.getElementById("mean");
+      let stdDevElement = document.getElementById("sd");
+      let instructionElement = document.getElementById("instruction");
+      let stimulusElement = document.getElementById("stimulus");
+      let errorElement = document.getElementById("errors");
+      let correlationElement = document.getElementById("correlation");
+
+      function getMean(data) {
+        let sum = 0;
+        for (let value of data) sum += value;
+        return sum / data.length;
+      }
+
+      function getStandardDeviation(data) {
+        let mean = getMean(data);
+        let squareSum = 0;
+        for (let value of data) squareSum += (value - mean) ** 2;
+        return Math.sqrt(squareSum / data.length);
+      }
+
+      function clearResults() {
+        timeElement.textContent = "";
+        countElement.textContent = "";
+        meanElement.textContent = "";
+        stdDevElement.textContent = "";
+      }
+
+      function showResults() {
+        let meanDeltaTime = getMean(times);
+        let stdDev = getStandardDeviation(times);
+        let correlation = calculateCorrelation(times, distances);
+        let errorRate = (errorCount / (trialCount + errorCount)) * 100;
+
+        countElement.textContent = "Count: " + times.length;
+        meanElement.textContent = "Mean: " + Math.round(meanDeltaTime) + " ms";
+        stdDevElement.textContent = "SD: " + Math.round(stdDev) + " ms";
+        errorElement.textContent = "Errors: " + errorCount;
+        correlationElement.textContent =
+          "Correlation: " + correlation.toFixed(2);
+      }
+
+      function setStimulusColor(newColor) {
+        stimulusElement.style.backgroundColor = newColor;
+      }
+
+      function startTestTrial() {
+        if (fadeInterval) clearInterval(fadeInterval);
+
+        stimulusElement.style.opacity = 0;
+        // reset the stimulus
+        setStimulusColor("red");
+        stimulusIsVisible = false;
+
+        // schedule the stimulus to appear after a random amount of time
+        let timeToWaitInSeconds = Math.random() * 4 + 2; // 2 - 6s
+        testStimulusTimeout = setTimeout(
+          showStimulus,
+          timeToWaitInSeconds * 1000,
+        );
+      }
+
+      function fade(duration) {
+        let opacity = 0; // initial opacity
+        stimulusElement.style.opacity = opacity;
+        const interval = 50; // interval in mls
+        const step = interval / duration; // increase in opacity per step
+
+        clearInterval(fadeInterval); // clear any existing interval
+
+        fadeInterval = setInterval(() => {
+          opacity += step;
+          stimulusElement.style.opacity = opacity;
+          if (opacity >= 1) {
+            clearInterval(fadeInterval); // stop the interval when fully visible
+          }
+          stimulusElement.style.opacity = opacity;
+        }, interval);
+      }
+
+      function calculateCorrelation(x, y) {
+        const n = x.length;
+
+        const averageX = getMean(x);
+        const averageY = getMean(y);
+
+        let covariance = 0;
+        let varianceX = 0;
+        let varianceY = 0;
+
+        for (let i = 0; i < n; i++) {
+          const diffX = x[i] - averageX;
+          const diffY = y[i] - averageY;
+
+          covariance += diffX * diffY;
+          varianceX += diffX * diffX;
+          varianceY += diffY * diffY;
+        }
+        const divisor = Math.sqrt(varianceX * varianceY);
+        return divisor === 0 ? 0 : covariance / divisor;
+      }
+
+      function showStimulus() {
+        const x =
+          Math.random() * (window.innerWidth - stimulusElement.offsetWidth);
+        const y =
+          Math.random() * (window.innerHeight - stimulusElement.offsetHeight);
+        stimulusElement.style.left = x + "px";
+        stimulusElement.style.top = y + "px";
+        stimulusIsVisible = true;
+        stimulusTimestamp = Date.now();
+
+        // measure distances to center and store for correlation
+        const centerX = x + stimulusElement.offsetWidth / 2;
+        const centerY = y + stimulusElement.offsetHeight / 2;
+        const distanceToCenter = Math.sqrt(
+          Math.pow(centerX - window.innerWidth / 2, 2) +
+            Math.pow(centerY - window.innerHeight / 2, 2),
+        );
+        distances.push(distanceToCenter);
+
+        // fade the stimulus over 5 sec
+        fade(5000);
+      }
+
+      function recordStimulusReactionTime() {
+        if (fadeInterval) clearInterval(fadeInterval); // stop fading when user reacts
+        let deltaTime = Date.now() - stimulusTimestamp;
+        times.push(deltaTime);
+        timeElement.textContent = deltaTime + " ms";
+      }
+
+      function startExperiment() {
+        clearResults(); // clear results of any previous tests
+        instructionElement.textContent =
+          "Press space when the stimulus appears! Press 'a' for results!";
+
+        // reset data and start tests
+        times = [];
+        distances = [];
+        errorCount = 0;
+        trialCount = 0;
+        experimentActive = true;
+        startTestTrial();
+      }
+
+      function stopExperiment() {
+        // cancel any ongoing tests
+        clearTimeout(testStimulusTimeout);
+        stimulusIsVisible = false;
+        experimentActive = false;
+
+        // reset instruction and show results
+        instruction.textContent = "Press space to start!";
+        showResults();
+      }
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === " ") {
+          // the user pressed the space key
+          if (!experimentActive) {
+            // start the experiment if it wasn't active
+            startExperiment();
+            return;
+          }
+
+          if (stimulusIsVisible) {
+            // record reaction time
+            recordStimulusReactionTime();
+            trialCount++;
+
+            if (trialCount >= maxTrials) {
+              stopExperiment();
+            } else {
+              // start a new trial
+              startTestTrial();
+            }
+          } else {
+            // count error if space was pressed but stimulus is not visible
+            errorCount++;
+          }
+        } else if (event.key === "a") {
+          if (experimentActive) {
+            // stop the experiment and show results
+            stopExperiment();
+          }
+        } else if (event.key === "b") {
+          // ...
+        }
+      });
+    </script>
+  </body>
+</html>

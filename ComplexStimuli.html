@@ -1,0 +1,258 @@
+<html>
+  <head>
+    <title>Human Capabilities - Reaction test</title>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+      #stimulus {
+        position: absolute;
+        opacity: 0;
+        display: none;
+        width: 300px; /* Einheitliche Größe für die Bilder */
+        height: 200px;
+        object-fit: cover;
+        border: 2px solid #000;
+      }
+      .results p {
+        margin: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">User Study</h1>
+    <h1 id="instruction">Press space to start!</h2>
+    <h2>
+      Press "D" for german, press "F" for vietnamese, press "G" for spanish.
+    </h2>
+    
+    <img id="stimulus" src="" alt="dish" />
+
+    <div class="results">
+      <p id="time"></p>
+      <p id="count"></p>
+      <p id="meanGerman"></p>
+      <p id="meanVietnamese"></p>
+      <p id="meanSpanish"></p>
+      <p id="sd"></p>
+      <p id="errors"></p>
+    </div>
+
+    <script>
+      // if true, the experiment is currently active
+      let experimentActive = false;
+
+      // if true, the stimulus is currently visible and the user should press space
+      let stimulusIsVisible = false;
+
+      // time at which the stimulus last appeared (in milliseconds, see Date.now())
+      let stimulusTimestamp;
+
+      // ID of the timeout that is scheduled to make the stimulus appear.
+      // Used to cancel tests when the experiment ends.
+      let testStimulusTimeout;
+
+      // ID of the interval that is scheduled to fade the stimulus. Used to stop fading when user reacts.
+      let fadeInterval;
+
+      let germanTimes = [];
+      let vietnameseTimes = [];
+      let spanishTimes = [];
+      let currentImage;
+      let errorCount = 0;
+      let trialCount = 0;
+      const maxTrials = 30;
+
+      let imageList = [
+        { src: "bilder/de_brezel.jpg", country: "d" },
+        { src: "bilder/de_flammkuchen.jpg", country: "d" },
+        { src: "bilder/de_kartoffelsalat.jpg", country: "d" },
+        { src: "bilder/de_kirschtorte.jpg", country: "d" },
+        { src: "bilder/de_maultaschen.jpg", country: "d" },
+        { src: "bilder/de_currywurst.jpg", country: "d" },
+        { src: "bilder/de_sauerbraten.jpg", country: "d" },
+        { src: "bilder/de_schnitzel.jpg", country: "d" },
+        { src: "bilder/de_spätzle.jpg", country: "d" },
+        { src: "bilder/de_weißwurst.jpg", country: "d" },
+        { src: "bilder/vn_pho.jpg", country: "f" },
+        { src: "bilder/vn_spring_roll.jpg", country: "f" },
+        { src: "bilder/vn_dish3.jpg", country: "f" },
+        { src: "bilder/vn_dish4.jpg", country: "f" },
+        { src: "bilder/vn_dish5.jpg", country: "f" },
+        { src: "bilder/vn_dish6.jpg", country: "f" },
+        { src: "bilder/vn_dish7.jpg", country: "f" },
+        { src: "bilder/vn_dish8.jpg", country: "f" },
+        { src: "bilder/vn_dish9.jpg", country: "f" },
+        { src: "bilder/vn_dish10.jpg", country: "f" },
+        { src: "bilder/es_churro.jpg", country: "g" },
+        { src: "bilder/es_chorizzo.jpg", country: "g" },
+        { src: "bilder/es_gambas.jpg", country: "g" },
+        { src: "bilder/es_gazpacho.jpg", country: "g" },
+        { src: "bilder/es_jamon.jpg", country: "g" },
+        { src: "bilder/es_olives.jpg", country: "g" },
+        { src: "bilder/es_oranges.jpg", country: "g" },
+        { src: "bilder/es_paella.jpg", country: "g" },
+        { src: "bilder/es_tapas.jpg", country: "g" },
+        { src: "bilder/es_tortilla.jpg", country: "g" },
+      ];
+
+      // DOM elements
+      let timeElement = document.getElementById("time");
+      let countElement = document.getElementById("count");
+      let meanGermanElement = document.getElementById("meanGerman");
+      let meanSpanishElement = document.getElementById("meanSpanish");
+      let meanVietnameseElement = document.getElementById("meanVietnamese");
+      let stdDevElement = document.getElementById("sd");
+      let instructionElement = document.getElementById("instruction");
+      let stimulusElement = document.getElementById("stimulus");
+      let errorElement = document.getElementById("errors");
+
+      function getMean(data) {
+        let sum = 0;
+        for (let value of data) sum += value;
+        return sum / data.length;
+      }
+
+      function getStandardDeviation(data) {
+        let mean = getMean(data);
+        let squareSum = 0;
+        for (let value of data) squareSum += (value - mean) ** 2;
+        return Math.sqrt(squareSum / data.length);
+      }
+
+      function clearResults() {
+        timeElement.textContent = "";
+        countElement.textContent = "";
+        meanGermanElement.textContent = "";
+        meanVietnameseElement.textContent = "";
+        meanSpanishElement.textContent = "";
+        stdDevElement.textContent = "";
+        errorElement.textContent = "";
+      }
+
+      function showResults() {
+        let allTimes = germanTimes.concat(vietnameseTimes).concat(spanishTimes);
+
+        countElement.textContent = "Trials: " + trialCount;
+        meanGermanElement.textContent =
+          "Mean Germany: " + Math.round(getMean(germanTimes)) + " ms";
+        meanVietnameseElement.textContent =
+          "Mean Vietnam: " + Math.round(getMean(vietnameseTimes)) + " ms";
+        meanSpanishElement.textContent =
+          "Mean Spain: " + Math.round(getMean(spanishTimes)) + " ms";
+        stdDevElement.textContent =
+          "SD Overall: " + Math.round(getStandardDeviation(allTimes)) + " ms";
+
+        let totalInputs = trialCount + errorCount;
+        let errorRate = totalInputs > 0 ? (errorCount / totalInputs) * 100 : 0;
+        errorElement.textContent =
+          "Errors: " + errorCount + " (" + errorRate.toFixed(1) + "%)";
+      }
+      function startTestTrial() {
+        if (fadeInterval) clearInterval(fadeInterval);
+
+        stimulusElement.style.opacity = 0;
+        stimulusElement.style.display = "none";
+        stimulusIsVisible = false;
+
+        if (trialCount < maxTrials) {
+          showStimulus();
+        } else {
+          stopExperiment();
+        }
+      }
+
+      function fade(duration) {
+        let opacity = 0; // initial opacity
+        stimulusElement.style.opacity = opacity;
+        const interval = 50; // interval in mls
+        const step = interval / duration; // increase in opacity per step
+
+        clearInterval(fadeInterval); // clear any existing interval
+
+        fadeInterval = setInterval(() => {
+          opacity += step;
+          stimulusElement.style.opacity = opacity;
+          if (opacity >= 1) {
+            clearInterval(fadeInterval); // stop the interval when fully visible
+          }
+          stimulusElement.style.opacity = opacity;
+        }, interval);
+      }
+
+      function showStimulus() {
+        currentImage = imageList[trialCount];
+        stimulusElement.src = currentImage.src;
+
+        stimulusElement.style.display = "block";
+        stimulusElement.style.opacity = 1;
+
+        stimulusIsVisible = true;
+        stimulusTimestamp = Date.now();
+      }
+
+      function recordStimulusReactionTime(deltaTime) {
+        if (fadeInterval) clearInterval(fadeInterval); // stop fading when user reacts
+        timeElement.textContent = deltaTime + " ms";
+      }
+
+      function startExperiment() {
+        // shuffle the image list at the beginning to ensure random order
+        imageList.sort(() => Math.random() - 0.5);
+
+        // reset data and start tests
+        germanTimes = [];
+        vietnameseTimes = [];
+        spanishTimes = [];
+        errorCount = 0;
+        trialCount = 0;
+        experimentActive = true;
+        startTestTrial();
+      }
+
+      function stopExperiment() {
+        // cancel any ongoing tests
+        clearTimeout(testStimulusTimeout);
+        stimulusIsVisible = false;
+        experimentActive = false;
+        stimulusElement.style.display = "none";
+
+        // reset instruction and show results
+        instruction.textContent = "Press space to start!";
+        showResults();
+      }
+
+      window.addEventListener("keydown", (event) => {
+        let key = event.key.toLowerCase();
+
+        if (key === " ") {
+          // the user pressed the space key
+          if (!experimentActive) {
+            // start the experiment if it wasn't active
+            startExperiment();
+            return;
+          }
+        }
+
+        if (experimentActive) {
+          if (stimulusIsVisible) {
+            if (["d", "f", "g"].includes(key)) {
+              if (key === currentImage.country) {
+                let dt = Date.now() - stimulusTimestamp;
+                if (key === "d") germanTimes.push(dt);
+                else if (key === "f") vietnameseTimes.push(dt);
+                else if (key === "g") spanishTimes.push(dt);
+              } else {
+                errorCount++;
+              }
+              trialCount++;
+              startTestTrial();
+            }
+          } else if (["d", "f", "g"].includes(key)) {
+            errorCount++;
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
